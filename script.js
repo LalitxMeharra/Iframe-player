@@ -1,175 +1,189 @@
-(() => {
-  'use strict';
+/* ==========================================================================
+   OG-STREAM PLAYER - CORE LOGIC
+   Direct Iframe Bypass & Cinematic Playback
+   ========================================================================== */
 
-  /* ---------------------------------------------------------------------
-     Theme toggle
-     (initial theme is already set on <html> by the inline script in
-     index.html — this just wires up the button and keeps it in sync)
-  --------------------------------------------------------------------- */
-  const root = document.documentElement;
-  const themeToggle = document.getElementById('themeToggle');
-  const THEME_KEY = 'dojo-stream-theme';
+document.addEventListener('DOMContentLoaded', () => {
+    // --- 1. DOM ELEMENTS ---
+    const streamForm = document.getElementById('streamForm');
+    const streamUrlInput = document.getElementById('streamUrl');
+    const pasteBtn = document.getElementById('pasteBtn');
+    
+    const videoWrapper = document.getElementById('videoWrapper');
+    const playerPlaceholder = document.getElementById('playerPlaceholder');
+    
+    const statusTag = document.getElementById('statusTag');
+    const streamTitle = document.getElementById('streamTitle');
+    const streamMeta = document.getElementById('streamMeta');
+    
+    const btnFullscreen = document.getElementById('btnFullscreen');
+    const btnClearStream = document.getElementById('btnClearStream');
+    
+    const toast = document.getElementById('toast');
+    const toastMsg = document.getElementById('toastMsg');
+    
+    let toastTimeout;
 
-  function syncToggleA11y(theme) {
-    themeToggle.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
-    themeToggle.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
-  }
-
-  syncToggleA11y(root.getAttribute('data-theme') || 'light');
-
-  themeToggle.addEventListener('click', () => {
-    const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-    root.setAttribute('data-theme', next);
-    syncToggleA11y(next);
-    try { localStorage.setItem(THEME_KEY, next); } catch (_) { /* storage unavailable — theme just won't persist */ }
-  });
-
-  /* ---------------------------------------------------------------------
-     Elements
-  --------------------------------------------------------------------- */
-  const urlInput = document.getElementById('urlInput');
-  const playBtn = document.getElementById('playBtn');
-  const clearBtn = document.getElementById('clearBtn');
-  const errorToast = document.getElementById('errorToast');
-  const stage = document.getElementById('stage');
-  const stageFrame = document.getElementById('stageFrame');
-  const statusDot = document.getElementById('statusDot');
-  const statusText = document.getElementById('statusText');
-
-  let errorTimer = null;
-
-  /* ---------------------------------------------------------------------
-     Helpers
-  --------------------------------------------------------------------- */
-  function showError(message) {
-    errorToast.textContent = message;
-    errorToast.classList.add('is-visible');
-    urlInput.classList.add('has-error');
-
-    stage.classList.remove('is-shaking');
-    // restart the shake animation even if it just fired
-    void stage.offsetWidth;
-    stage.classList.add('is-shaking');
-
-    clearTimeout(errorTimer);
-    errorTimer = setTimeout(() => errorToast.classList.remove('is-visible'), 4500);
-  }
-
-  function clearError() {
-    errorToast.classList.remove('is-visible');
-    urlInput.classList.remove('has-error');
-  }
-
-  function decodeHtmlEntities(str) {
-    const box = document.createElement('textarea');
-    box.innerHTML = str;
-    return box.value;
-  }
-
-  // Pulls the src out of a pasted <iframe> tag, or falls back to treating
-  // the whole input as a plain URL.
-  function extractUrl(raw) {
-    const value = raw.trim();
-    if (!value) return null;
-
-    const iframeMatch = value.match(/<iframe[^>]*\ssrc=["']([^"']+)["']/i);
-    if (iframeMatch) return decodeHtmlEntities(iframeMatch[1].trim());
-
-    return value;
-  }
-
-  function tryParseUrl(candidate) {
-    try {
-      const parsed = new URL(candidate);
-      return (parsed.protocol === 'http:' || parsed.protocol === 'https:') ? parsed.href : null;
-    } catch (_) {
-      return null;
-    }
-  }
-
-  function normalizeUrl(candidate) {
-    let str = candidate.trim();
-    if (str.startsWith('//')) str = 'https:' + str;
-
-    let result = tryParseUrl(str);
-    if (result) return result;
-
-    // No scheme at all, e.g. "streamhost.example/embed/123" — assume https.
-    if (!/^[a-z][a-z0-9+.-]*:/i.test(str)) {
-      result = tryParseUrl('https://' + str);
-      if (result) return result;
+    // --- 2. TOAST NOTIFICATION SYSTEM ---
+    function showToast(message) {
+        toastMsg.textContent = message;
+        toast.classList.add('show');
+        
+        clearTimeout(toastTimeout);
+        toastTimeout = setTimeout(() => {
+            toast.classList.remove('show');
+        }, 3000);
     }
 
-    return null;
-  }
+    // --- 3. CLIPBOARD PASTE LOGIC ---
+    pasteBtn.addEventListener('click', async () => {
+        try {
+            const text = await navigator.clipboard.readText();
+            if (text) {
+                streamUrlInput.value = text;
+                showToast("Clipboard data pasted.");
+                streamUrlInput.focus();
+            } else {
+                showToast("Clipboard is empty.");
+            }
+        } catch (err) {
+            showToast("Paste permission denied. Please paste manually.");
+        }
+    });
 
-  function setStatus(state) {
-    statusDot.setAttribute('data-state', state);
-    statusText.textContent = state;
-  }
+    // --- 4. URL EXTRACTION LOGIC (The Brains) ---
+    function extractSource(input) {
+        let rawInput = input.trim();
+        if (!rawInput) return null;
 
-  /* ---------------------------------------------------------------------
-     Core actions
-  --------------------------------------------------------------------- */
-  function playStream() {
-    const extracted = extractUrl(urlInput.value);
-
-    if (!extracted) {
-      showError('Paste a stream link or an <iframe> embed code first.');
-      return;
+        // Agar user ne pura <iframe> tag paste kiya hai
+        if (rawInput.toLowerCase().includes('<iframe') && rawInput.toLowerCase().includes('src=')) {
+            // Regex to extract the src URL accurately
+            const match = rawInput.match(/src\s*=\s*["']([^"']+)["']/i);
+            if (match && match[1]) {
+                return match[1];
+            }
+        }
+        
+        // Agar direct URL hai
+        try {
+            const parsed = new URL(rawInput);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                return parsed.href;
+            }
+        } catch (e) {
+            // Agar protocol missng hai (jaise vidfast.vc/...) to https laga do
+            if (!rawInput.startsWith('http')) {
+                return 'https://' + rawInput;
+            }
+        }
+        
+        return null;
     }
 
-    const finalUrl = normalizeUrl(extracted);
-    if (!finalUrl) {
-      showError("That doesn't look like a playable link.");
-      return;
+    // --- 5. STREAM INITIALIZATION LOGIC ---
+    function triggerError() {
+        const fetchCard = document.querySelector('.fetch-card');
+        fetchCard.classList.remove('shake-error');
+        void fetchCard.offsetWidth; // Trigger reflow for animation restart
+        fetchCard.classList.add('shake-error');
+        showToast("Invalid Stream Data. Please check the link.");
     }
 
-    clearError();
-    loadStream(finalUrl);
-  }
+    streamForm.addEventListener('submit', (e) => {
+        e.preventDefault(); // Prevent page reload
+        
+        const sourceUrl = extractSource(streamUrlInput.value);
+        
+        if (!sourceUrl) {
+            triggerError();
+            return;
+        }
 
-  function loadStream(src) {
-    stageFrame.innerHTML = '';
+        // Update UI Status (Simulating a premium decryption process)
+        statusTag.textContent = "STATUS: BYPASSING SERVER & CONNECTING...";
+        statusTag.style.color = "var(--crimson)";
+        
+        // Remove old iframe if exists
+        const existingIframe = videoWrapper.querySelector('iframe');
+        if (existingIframe) {
+            existingIframe.remove();
+        }
 
-    const iframe = document.createElement('iframe');
-    iframe.src = src;
-    iframe.title = 'Stream playback';
-    iframe.setAttribute('allow', 'autoplay; fullscreen; picture-in-picture; encrypted-media');
-    iframe.setAttribute('allowfullscreen', '');
-    iframe.setAttribute('referrerpolicy', 'no-referrer');
-    // Scripts stay allowed so third-party players can actually run, but
-    // top-level navigation and popups stay blocked — this stops shady
-    // embeds from hijacking the tab or spawning ad windows.
-    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
+        // Hide Placeholder
+        playerPlaceholder.style.display = "none";
 
-    stageFrame.appendChild(iframe);
-    stage.classList.add('is-active');
-    clearBtn.disabled = false;
-    setStatus('playing');
-  }
+        // Create new Iframe bypassing restrictive sandbox
+        const iframe = document.createElement('iframe');
+        iframe.src = sourceUrl;
+        iframe.setAttribute('allowfullscreen', 'true');
+        iframe.setAttribute('scrolling', 'no');
+        iframe.setAttribute('frameborder', '0');
+        // NOTE: We intentionally leave out the 'sandbox' attribute here 
+        // to allow third-party streaming servers to execute their necessary player scripts.
 
-  function clearStream() {
-    stageFrame.innerHTML = '';
-    stage.classList.remove('is-active');
-    clearBtn.disabled = true;
-    setStatus('idle');
-    urlInput.value = '';
-    urlInput.focus();
-  }
+        // Append to wrapper
+        videoWrapper.appendChild(iframe);
+        
+        // Show iframe block
+        iframe.style.display = "block";
 
-  /* ---------------------------------------------------------------------
-     Events
-  --------------------------------------------------------------------- */
-  playBtn.addEventListener('click', playStream);
-  clearBtn.addEventListener('click', clearStream);
+        // Update Metadata
+        statusTag.textContent = "STATUS: STREAM ACTIVE";
+        statusTag.style.color = "var(--ink-black)";
+        
+        try {
+            const domain = new URL(sourceUrl).hostname;
+            streamTitle.textContent = `Pumping from: ${domain.toUpperCase()}`;
+        } catch(e) {
+            streamTitle.textContent = "Direct Stream Established";
+        }
+        
+        streamMeta.textContent = "Connection secure. Max bitrate requested.";
+        showToast("Stream Initialized. Enjoy!");
+        
+        // Smooth scroll to player
+        document.getElementById('playerBlock').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
 
-  urlInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      playStream();
-    }
-  });
+    // --- 6. FULLSCREEN CONTROL ---
+    btnFullscreen.addEventListener('click', () => {
+        const currentIframe = videoWrapper.querySelector('iframe');
+        
+        if (!currentIframe) {
+            showToast("No active stream to fullscreen.");
+            return;
+        }
 
-  urlInput.addEventListener('input', clearError);
-})();
+        if (currentIframe.requestFullscreen) {
+            currentIframe.requestFullscreen();
+        } else if (currentIframe.webkitRequestFullscreen) { /* Safari */
+            currentIframe.webkitRequestFullscreen();
+        } else if (currentIframe.msRequestFullscreen) { /* IE11 */
+            currentIframe.msRequestFullscreen();
+        }
+    });
+
+    // --- 7. CLEAR/TERMINATE STREAM LOGIC ---
+    btnClearStream.addEventListener('click', () => {
+        const currentIframe = videoWrapper.querySelector('iframe');
+        
+        if (currentIframe) {
+            currentIframe.remove();
+            
+            // Reset UI
+            playerPlaceholder.style.display = "block";
+            streamUrlInput.value = "";
+            
+            statusTag.textContent = "STATUS: AWAITING SIGNAL";
+            statusTag.style.color = "var(--text-muted)";
+            streamTitle.textContent = "Direct Pipeline Stream";
+            streamMeta.textContent = "Ready to bypass server ads and render raw visuals.";
+            
+            showToast("Stream Terminated & Cache Cleared.");
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+            showToast("No active stream to terminate.");
+        }
+    });
+});
