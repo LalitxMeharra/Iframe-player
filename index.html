@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dojo Stream — Embed Player</title>
+<meta name="description" content="Paste any streaming iframe embed and watch it in a distraction-free cinematic frame." />
+<meta name="theme-color" content="#F3EEE2" />
+
+<!-- Set the theme before first paint so there's no flash of the wrong mode -->
+<script>
+  (function () {
+    try {
+      var saved = localStorage.getItem('dojo-stream-theme');
+      var theme = (saved === 'light' || saved === 'dark')
+        ? saved
+        : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      document.documentElement.setAttribute('data-theme', theme);
+    } catch (e) {}
+  })();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Shippori+Mincho:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="site-header shell">
+  <div class="brand">
+    <span class="brand__mark" aria-hidden="true">映</span>
+    <div class="brand__text">
+      <h1 class="brand__name">Dojo Stream</h1>
+      <p class="brand__tagline">cinematic embed terminal</p>
+    </div>
+  </div>
+
+  <button type="button" class="theme-toggle" id="themeToggle" aria-pressed="false" aria-label="Switch to dark mode">
+    <span class="theme-toggle__track">
+      <span class="theme-toggle__icon theme-toggle__icon--sun" aria-hidden="true">☀</span>
+      <span class="theme-toggle__icon theme-toggle__icon--moon" aria-hidden="true">☾</span>
+      <span class="theme-toggle__knob"></span>
+    </span>
+  </button>
+</header>
+
+<main class="stage-wrap shell">
+
+  <section class="panel">
+    <label class="panel__label" for="urlInput">Stream source</label>
+    <div class="input-row">
+      <div class="input-shell">
+        <input
+          type="text"
+          id="urlInput"
+          class="url-input"
+          placeholder="Paste a stream link or a full <iframe> embed code"
+          autocomplete="off"
+          spellcheck="false"
+          aria-describedby="errorToast"
+        />
+      </div>
+      <button type="button" id="playBtn" class="play-btn">Play</button>
+    </div>
+    <p class="error-toast" id="errorToast" role="alert" aria-live="assertive"></p>
+  </section>
+
+  <section class="stage" id="stage" aria-label="Video player">
+    <span class="stage__corner stage__corner--tl" aria-hidden="true"></span>
+    <span class="stage__corner stage__corner--tr" aria-hidden="true"></span>
+    <span class="stage__corner stage__corner--bl" aria-hidden="true"></span>
+    <span class="stage__corner stage__corner--br" aria-hidden="true"></span>
+
+    <div class="stage__placeholder" id="stagePlaceholder">
+      <span class="stage__placeholder-mark" aria-hidden="true">映</span>
+      <p class="stage__placeholder-title">No signal</p>
+      <p class="stage__placeholder-sub">Paste a stream URL above to begin</p>
+    </div>
+
+    <div class="stage__frame" id="stageFrame"></div>
+  </section>
+
+  <div class="meta-row">
+    <div class="status">
+      <span class="status__dot" id="statusDot" data-state="idle"></span>
+      <span id="statusText">idle</span>
+    </div>
+    <button type="button" class="clear-btn" id="clearBtn" disabled>Clear</button>
+  </div>
+
+</main>
+
+<footer class="site-footer">
+  <p class="shell">Paste. Play. Watch. — works with any embeddable stream source.</p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
